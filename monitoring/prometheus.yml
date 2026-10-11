@@ -1,0 +1,7 @@
+global:
+  scrape_interval: 5s
+scrape_configs:
+  - job_name: simulated-edges
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['backend-a:8001','backend-b:8002']

@@ -1,0 +1,15 @@
+{
+  "title": "watchd0g — Edges",
+  "schemaVersion": 39,
+  "refresh": "5s",
+  "panels": [
+    {"type":"timeseries","title":"Bitrate","gridPos":{"h":8,"w":12,"x":0,"y":0},
+     "targets":[{"expr":"edge_output_bitrate_mbps","legendFormat":"{{edge}}"}]},
+    {"type":"timeseries","title":"Latency","gridPos":{"h":8,"w":12,"x":12,"y":0},
+     "targets":[{"expr":"edge_latency_ms","legendFormat":"{{edge}}"}]},
+    {"type":"timeseries","title":"4xx ratio","gridPos":{"h":8,"w":12,"x":0,"y":8},
+     "targets":[{"expr":"edge_http_4xx_ratio","legendFormat":"{{edge}}"}]},
+    {"type":"timeseries","title":"Utilization","gridPos":{"h":8,"w":12,"x":12,"y":8},
+     "targets":[{"expr":"edge_capacity_utilization_ratio","legendFormat":"{{edge}}"}]}
+  ]
+}

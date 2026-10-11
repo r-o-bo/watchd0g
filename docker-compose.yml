@@ -1,0 +1,77 @@
+services:
+  backend-a:
+    build: ./simulated
+    environment:
+      EDGE_NAME: backend-a
+      EDGE_PORT: "8001"
+    ports: ["127.0.0.1:8001:8001"]
+    healthcheck:
+      test: ["CMD","python","-c","import urllib.request;urllib.request.urlopen('http://localhost:8001/healthz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  backend-b:
+    build: ./simulated
+    environment:
+      EDGE_NAME: backend-b
+      EDGE_PORT: "8002"
+    ports: ["127.0.0.1:8002:8002"]
+    healthcheck:
+      test: ["CMD","python","-c","import urllib.request;urllib.request.urlopen('http://localhost:8002/healthz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  prometheus:
+    image: prom/prometheus:latest
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=7d"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports: ["127.0.0.1:9090:9090"]
+    depends_on:
+      backend-a: { condition: service_healthy }
+      backend-b: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD","wget","-qO-","http://localhost:9090/-/healthy"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports: ["127.0.0.1:3000:3000"]
+    depends_on:
+      prometheus: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL","wget -qO- http://localhost:3000/api/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+  agent:
+    build: ./agent
+    env_file: [.env]
+    environment:
+      PROMETHEUS_URL: http://prometheus:9090
+      BACKEND_A_URL: http://backend-a:8001
+      BACKEND_B_URL: http://backend-b:8002
+      AUDIT_DIR: /app/audit
+    volumes:
+      - ./audit:/app/audit
+      - ./console:/app/console:ro
+    ports: ["127.0.0.1:8000:8000"]
+    depends_on:
+      prometheus: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD","python","-c","import urllib.request;urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s

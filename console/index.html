@@ -1,0 +1,63 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>watchd0g console</title>
+<style>
+ body{font:14px/1.4 system-ui;margin:1rem;background:#0e1116;color:#e6edf3}
+ .row{display:flex;gap:1rem;flex-wrap:wrap}
+ .card{border:1px solid #30363d;border-radius:8px;padding:0.75rem 1rem;min-width:240px}
+ .ok{color:#3fb950}.bad{color:#f85149}.warn{color:#d29922}
+ button{margin-right:.5rem}
+ pre{background:#161b22;padding:.5rem;border-radius:6px;max-height:220px;overflow:auto}
+</style></head><body>
+<h1>watchd0g console <small>— simulated OTT edges</small></h1>
+<div class="row">
+  <div class="card" id="agent-card">agent: <span id="agent-status">…</span></div>
+  <div class="card" id="edge-a">backend-a: …</div>
+  <div class="card" id="edge-b">backend-b: …</div>
+</div>
+<div class="row" style="margin-top:1rem">
+  <div class="card">
+    <b>Controls</b><br>
+    <button onclick="act('backend-a','degrade')">Degrade A</button>
+    <button onclick="act('backend-b','degrade')">Degrade B</button>
+    <button onclick="act('backend-a','load')">Load A</button>
+    <button onclick="act('backend-b','load')">Load B</button>
+    <button onclick="act('backend-a','reset')">Reset A</button>
+    <button onclick="act('backend-b','reset')">Reset B</button>
+  </div>
+</div>
+<h3>Latest diagnosis</h3><pre id="diag">—</pre>
+<h3>Latest policy / action</h3><pre id="pol">—</pre>
+<h3>Recent events</h3><pre id="events">—</pre>
+<script>
+const $ = id => document.getElementById(id);
+const EDGE = { "backend-a":"8001", "backend-b":"8002" };
+
+async function act(edge, verb){
+  await fetch(`http://localhost:${EDGE[edge]}/simulate/${verb}`, {method:"POST"});
+  refresh();
+}
+
+function pill(v){ return v===1 ? '<span class="ok">active</span>'
+                              : '<span class="warn">inactive</span>'; }
+
+async function refresh(){
+  try{
+    const s = await (await fetch('/api/status')).json();
+    $('agent-status').textContent = s.last_update || 'waiting…';
+    const snap = s.snapshot && s.snapshot.edges || {};
+    for (const e of ['backend-a','backend-b']){
+      const m = snap[e] || {};
+      $(e).innerHTML = `<b>${e}</b><br>healthy: ${m.healthy}
+        ${pill(m.active)}<br>bitrate: ${(m.bitrate||0).toFixed(2)}
+        Mbps<br>latency: ${(m.latency||0).toFixed(0)} ms
+        <br>util: ${(m.util||0).toFixed(2)} workers: ${m.workers||0}`;
+    }
+    $('diag').textContent = JSON.stringify(s.last_diagnosis, null, 2) || '—';
+    $('pol').textContent = JSON.stringify({policy:s.last_policy, action:s.last_action}, null, 2);
+    const ev = await (await fetch('/api/events?limit=20')).json();
+    $('events').textContent = ev.events.map(e =>
+      `[${e.ts}] ${e.event_type} ${e.edge||''} ${e.reason||e.playbook||''}`).join('\n');
+  }catch(e){ $('agent-status').textContent = 'stale / unreachable'; }
+}
+setInterval(refresh, 3000); refresh();
+</script></body></html>
