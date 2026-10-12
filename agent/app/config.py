@@ -12,9 +12,20 @@ ESCALATION_DIR = os.path.join(AUDIT_DIR, "escalations")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "")
 MAX_LLM_CALLS_PER_HOUR = _i(os.environ.get("MAX_LLM_CALLS_PER_HOUR"), 10)
+# gemini: only the real API (raise on failure)
+# mock:   only the deterministic local reasoner (no network)
+# auto:   try Gemini, fall back to the deterministic reasoner on any failure
+REASONER_MODE = os.environ.get("REASONER_MODE", "gemini").lower()
 
 AUTO_REMEDIATE_ENABLED = _b(os.environ.get("AUTO_REMEDIATE_ENABLED", "false"))
 PLAYBOOK_COOLDOWN_SECONDS = _i(os.environ.get("PLAYBOOK_COOLDOWN_SECONDS"), 60)
+
+# Deterministic demo switch: when true, every diagnosis is forced to a low
+# confidence so the low-confidence escalation path can be shown on demand.
+FORCE_LOW_CONFIDENCE = _b(os.environ.get("FORCE_LOW_CONFIDENCE", "false"))
+FORCED_CONFIDENCE_VALUE = _f(os.environ.get("FORCED_CONFIDENCE_VALUE"), 0.35)
+# A diagnosis below this confidence is escalated instead of acted upon.
+CONFIDENCE_MIN_THRESHOLD = _f(os.environ.get("CONFIDENCE_MIN_THRESHOLD"), 0.6)
 
 FAILOVER_BITRATE_MAX_MBPS = _f(os.environ.get("FAILOVER_BITRATE_MAX_MBPS"), 5.0)
 FAILOVER_LATENCY_MIN_MS = _f(os.environ.get("FAILOVER_LATENCY_MIN_MS"), 200.0)

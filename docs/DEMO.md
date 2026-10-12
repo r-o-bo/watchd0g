@@ -20,6 +20,9 @@ simulated edges.
   `false` for the **observe-only / safety** demo.
 - `GEMINI_MODEL` is a model your key can access and that still has quota;
   this repo is verified with `gemini-3.5-flash-lite`.
+- `REASONER_MODE` selects the reasoner: `auto` (recommended — real Gemini, with a
+  deterministic mock fallback if it is slow, rate-limited, or unconfigured),
+  `gemini` (real API only), or `mock` (fully offline, deterministic).
 - **After any `.env` change, recreate the agent — do not just restart it:**
   ```bash
   docker compose up -d --force-recreate agent   # restart does NOT re-read .env
@@ -28,6 +31,45 @@ simulated edges.
 
 If `.env` is missing a Gemini key, the agent still observes and detects, and it
 escalates instead of acting — that is the safety path, useful as a fallback demo.
+
+---
+
+## One-command demo (recommended for the live demo)
+
+```bash
+bash run_demo.sh
+```
+
+It brings the stack up, waits for health, resets to baseline, and then runs three
+scenarios automatically, printing the diagnosis, policy and action for each:
+
+1. **failover** — degrade the active edge A; the agent fails over to B (verified).
+2. **scale-up** — load the active edge B; the agent scales workers 1 → 2 (verified).
+3. **safety** — degrade *both* edges; policy refuses to fail over because the
+   standby is unhealthy, writes an escalation, and executes nothing.
+
+No Gemini key is required. With `REASONER_MODE=auto` it uses Gemini when
+reachable and falls back to a deterministic mock reasoner otherwise, so the demo
+never stalls on quota or network. The `engine` field in each diagnosis shows
+which was used (`gemini`, `mock`, or `mock-fallback`).
+
+The manual walk-through below tells the identical story step by step, if you
+prefer to drive it yourself.
+
+---
+
+## If the LLM is unavailable or rate-limited during the demo
+
+```bash
+bash scripts/demo_offline.sh
+```
+
+A safety net for demo day. It raises the stack, walks the operator through
+Scenarios 1 and 2 with pauses, and at the diagnosis step prints a clearly
+labelled block — **"DEMO MODE — canned diagnosis; no live LLM call"** — instead
+of a live Gemini result. Scenario 3 (the safety path) runs for real, because it
+does not need an LLM at all. It finishes by printing the audit trail so the full
+loop is still visible. Nothing here claims to be a live LLM call.
 
 ---
 
@@ -121,6 +163,11 @@ curl -s http://localhost:8000/api/status | python3 -m json.tool
 ```
 Acceptance: a new `ESC-*.json` exists whose `reason` mentions
 `AUTO_REMEDIATE_ENABLED` (or the missing Gemini config); `last_action` is `null`.
+
+> Faster safety demo (no `.env` change, no recreate): degrade the **standby**
+> edge as well as the active one, then degrade the active edge. The policy
+> refuses failover with `standby edge unhealthy`, writes an escalation, and takes
+> no action. This is what `run_demo.sh` Act 3 does.
 
 Restore remediation afterwards:
 ```bash

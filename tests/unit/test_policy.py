@@ -31,3 +31,15 @@ def test_cooldown(monkeypatch):
 def test_unknown_kind(monkeypatch):
     monkeypatch.setattr(config, "AUTO_REMEDIATE_ENABLED", True)
     assert not evaluate("nope", "backend-a", True, PolicyState()).allow
+
+def test_low_confidence_blocks_action(monkeypatch):
+    monkeypatch.setattr(config, "AUTO_REMEDIATE_ENABLED", True)
+    d = evaluate("failover", "backend-a", True, PolicyState(),
+                 diagnosis_confidence=0.35)
+    assert not d.allow and "confidence" in d.reason
+
+def test_high_confidence_allows_action(monkeypatch):
+    monkeypatch.setattr(config, "AUTO_REMEDIATE_ENABLED", True)
+    d = evaluate("failover", "backend-a", True, PolicyState(),
+                 diagnosis_confidence=0.95)
+    assert d.allow and d.playbook == "failover"

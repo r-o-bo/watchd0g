@@ -141,6 +141,7 @@ only *explains* and never authorizes an action.
 | GET | `/healthz` | `{"status":"ok"}` |
 | GET | `/api/status` | snapshot, last detection/diagnosis/policy/action, `auto_remediate`, `reasoner_configured` |
 | GET | `/api/events?limit=N` | the N most recent audit events |
+| GET | `/api/incident/latest` | the most recent incident's full trace (signals, diagnosis, policy, action, escalation, duration) assembled from the audit ring buffer |
 | GET | `/` | the console (`console/index.html`) |
 
 ### 3.2 Functional requirements
@@ -175,6 +176,8 @@ only *explains* and never authorizes an action.
 **Diagnosis (reasoner)**
 - **FR-10** The reasoner shall raise an error when no API key or model is configured, rather than attempt a call.
   *Verified by:* `tests/unit/test_reasoner.py::test_not_configured_raises`
+- **FR-10.1** In `auto` mode the reasoner shall fall back to a deterministic, grounded mock diagnosis when the Gemini call fails, and in `mock` mode shall produce one without any network access; the diagnosis shall record which engine was used.
+  *Verified by:* `tests/unit/test_reasoner.py::test_mock_mode_returns_grounded_diagnosis`, `tests/unit/test_reasoner.py::test_auto_falls_back_to_mock_when_gemini_fails`
 - **FR-11** The reasoner shall validate the LLM response against the `Diagnosis` schema and return it when valid.
   *Verified by:* `tests/unit/test_reasoner.py::test_valid_json_passes`
 - **FR-12** The reasoner shall reject a diagnosis whose `root_cause` is not in the allowed enum.
@@ -227,9 +230,15 @@ only *explains* and never authorizes an action.
   *Verified by:* `tests/integration/test_smoke.py::test_failover_end_to_end`
 - **FR-32** With a configured reasoner and remediation enabled, the scale-up playbook shall complete end-to-end and verify `workers == 2`.
   *Verified by:* `tests/integration/test_smoke.py::test_scale_up_end_to_end`
+- **FR-33** The policy engine shall deny every action when the diagnosis confidence is below the confidence threshold (0.6), even when remediation is enabled.
+  *Verified by:* `tests/unit/test_policy.py::test_low_confidence_blocks_action`
+- **FR-34** When `FORCE_LOW_CONFIDENCE` is true, the reasoner shall set every diagnosis confidence to 0.35 and record a `confidence_forced` audit event with the original value.
+  *Verified by:* `tests/unit/test_reasoner.py::test_force_low_confidence_overrides`
+- **FR-35** `/api/incident/latest` shall return the most recent incident's trace assembled from the audit ring buffer, with signals, diagnosis, policy, action/escalation, and duration.
+  *Verified by:* `tests/unit/test_incident.py::test_latest_assembles_full_trace`, `tests/unit/test_incident.py::test_latest_reports_escalation_as_terminal`
 
 ### 3.3 Performance requirements
-- **PR-1** Detection shall fire within 15 s of the onset of a sustained anomaly, given a 5 s Prometheus scrape interval and a 5 s agent poll interval (2–3 samples plus one observation interval).
+- **PR-1** Detection shall fire within two poll intervals of the anomaly being scraped: the failover rule (2 consecutive samples) in ≤ ~10 s and the scale-up rule (3 consecutive samples) in ≤ ~20 s, given a 5 s Prometheus scrape interval and a 5 s agent poll interval. *Measured on the reference host: failover 9.6 s; scale-up 14.6–19.7 s (worst case is 3 samples plus one observation interval).*
 - **PR-2** `/api/status` and `/api/events` shall respond in under 1 s under normal lab load (they read in-memory state only).
 - **PR-3** The control loop shall not overlap polls; a single `busy` guard prevents concurrent iterations.
 

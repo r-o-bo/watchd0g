@@ -1,5 +1,6 @@
 import os, threading
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 from prometheus_client import Gauge, generate_latest, CONTENT_TYPE_LATEST
@@ -48,6 +49,8 @@ def render():
             "healthy":healthy,"active":active,"workers":workers}
 
 app = FastAPI()
+app.add_middleware(CORSMiddleware, allow_origins=["*"],
+                   allow_methods=["*"], allow_headers=["*"])
 
 class ActiveBody(BaseModel):
     active: int = Field(ge=0, le=1)

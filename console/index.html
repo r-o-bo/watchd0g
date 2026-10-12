@@ -1,22 +1,60 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>watchd0g console</title>
 <style>
- body{font:14px/1.4 system-ui;margin:1rem;background:#0e1116;color:#e6edf3}
+ body{font:14px/1.4 system-ui;margin:0;background:#0e1116;color:#e6edf3}
+ .topbar{display:flex;align-items:center;gap:1rem;padding:.75rem 1rem;background:#161b22;border-bottom:1px solid #30363d}
+ .topbar h1{font-size:18px;margin:0}
+ .topbar .sub{color:#8b949e;font-size:13px}
+ .badge{margin-left:auto;background:#3a2d0b;color:#d29922;border:1px solid #d29922;
+        border-radius:999px;padding:2px 10px;font-size:12px;font-weight:600}
+ main{padding:1rem}
  .row{display:flex;gap:1rem;flex-wrap:wrap}
- .card{border:1px solid #30363d;border-radius:8px;padding:0.75rem 1rem;min-width:240px}
+ .card{border:1px solid #30363d;border-radius:8px;padding:0.75rem 1rem;min-width:240px;background:#11151b}
+ .card.healthy{border-color:#3fb950}
+ .card.inactive{border-color:#d29922}
+ .card.degraded{border-color:#f85149;background:#2a1518}
  .ok{color:#3fb950}.bad{color:#f85149}.warn{color:#d29922}
- button{margin-right:.5rem}
- pre{background:#161b22;padding:.5rem;border-radius:6px;max-height:220px;overflow:auto}
+ button{margin:.2rem .4rem .2rem 0;padding:.45rem .7rem;border-radius:6px;
+        border:1px solid #30363d;background:#21262d;color:#e6edf3;cursor:pointer}
+ button:hover{background:#30363d}
+ button.scenario{background:#132b3a;border-color:#1f6feb}
+ button.scenario:hover{background:#1b3a4f}
+ button:disabled{opacity:.5;cursor:not-allowed}
+ pre{background:#161b22;padding:.5rem;border-radius:6px;max-height:240px;overflow:auto;white-space:pre-wrap}
+ .scenario-panel{border:1px solid #1f6feb;border-radius:8px;padding:.75rem 1rem;margin-bottom:1rem}
+ #caption{color:#8b949e;margin:.4rem 0}
+ #step{color:#79c0ff;font-weight:600}
+ details{margin:.5rem 0}
+ summary{cursor:pointer;color:#8b949e}
+ h3{margin-bottom:.25rem}
 </style></head><body>
-<h1>watchd0g console <small>— simulated OTT edges</small></h1>
+<div class="topbar">
+  <h1>watchd0g</h1>
+  <span class="sub">Simulated OTT Edge Watchdog — Prototype</span>
+  <span class="badge">All data simulated</span>
+</div>
+<main>
+<div class="scenario-panel">
+  <b>Scripted scenarios</b> (the agent detects, diagnoses and acts on its own — these only change the simulated edge state)
+  <div class="row" style="margin-top:.5rem">
+    <button class="scenario" onclick="runScenario(1)">Scenario 1 — Edge failure &amp; simulated failover</button>
+    <button class="scenario" onclick="runScenario(2)">Scenario 2 — Capacity pressure &amp; simulated scale-up</button>
+    <button class="scenario" onclick="runScenario(3)">Scenario 3 — Safety: low confidence → escalation</button>
+    <button onclick="resetAll(true)">Reset all</button>
+  </div>
+  <div id="step">step: idle</div>
+  <div id="caption">Pick a scenario. The agent does the detection, diagnosis and action; the buttons only provoke the simulators.</div>
+</div>
+
 <div class="row">
   <div class="card" id="agent-card">agent: <span id="agent-status">…</span></div>
   <div class="card" id="edge-a">backend-a: …</div>
   <div class="card" id="edge-b">backend-b: …</div>
 </div>
-<div class="row" style="margin-top:1rem">
-  <div class="card">
-    <b>Controls</b><br>
+
+<details>
+  <summary>Advanced controls</summary>
+  <div class="card" style="margin-top:.5rem">
     <button onclick="act('backend-a','degrade')">Degrade A</button>
     <button onclick="act('backend-b','degrade')">Degrade B</button>
     <button onclick="act('backend-a','load')">Load A</button>
@@ -24,21 +62,119 @@
     <button onclick="act('backend-a','reset')">Reset A</button>
     <button onclick="act('backend-b','reset')">Reset B</button>
   </div>
-</div>
+</details>
+
+<h3>Reasoning trace <small>— latest incident, assembled from the audit log</small></h3><pre id="trace">—</pre>
 <h3>Latest diagnosis</h3><pre id="diag">—</pre>
 <h3>Latest policy / action</h3><pre id="pol">—</pre>
 <h3>Recent events</h3><pre id="events">—</pre>
+</main>
 <script>
 const $ = id => document.getElementById(id);
 const EDGE = { "backend-a":"8001", "backend-b":"8002" };
+const IDS  = { "backend-a":"edge-a", "backend-b":"edge-b" };
+const HOST = location.hostname || "localhost";
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-async function act(edge, verb){
-  await fetch(`http://localhost:${EDGE[edge]}/simulate/${verb}`, {method:"POST"});
+async function sim(edge, verb){
+  try { await fetch(`http://${HOST}:${EDGE[edge]}/simulate/${verb}`, {method:"POST"}); }
+  catch(e){ /* ignore; the next refresh surfaces the real state */ }
+}
+async function setActive(edge, v){
+  try {
+    await fetch(`http://${HOST}:${EDGE[edge]}/simulate/set-active`,
+      {method:"POST", headers:{"Content-Type":"application/json"},
+       body: JSON.stringify({active:v})});
+  } catch(e){}
+}
+async function act(edge, verb){ await sim(edge, verb); refresh(); }
+async function resetAll(clear){
+  await sim('backend-a','reset'); await sim('backend-b','reset');
+  if (clear){ setStep('idle'); setCaption('Reset to a healthy baseline (A active, B standby).'); }
   refresh();
 }
+function setStep(t){ $('step').textContent = 'step: ' + t; }
+function setCaption(t){ $('caption').textContent = t; }
 
 function pill(v){ return v===1 ? '<span class="ok">active</span>'
                               : '<span class="warn">inactive</span>'; }
+function edgeClass(m){
+  if(!m) return '';
+  if(m.healthy === 0) return 'degraded';
+  if(m.active === 0) return 'inactive';
+  return 'healthy';
+}
+
+const CAPTIONS = {
+  1: "Watch: A's bitrate drops, latency spikes. The agent detects in ~11s, calls Gemini, and the deterministic policy permits failover. A goes inactive, B becomes active. Verify with the edge cards and the audit log.",
+  2: "Watch: B's utilization climbs past 90%. After 3 consecutive samples the agent scales B to 2 workers, and B's utilization and latency drop per the deterministic formula.",
+  3: "Watch: the agent detects A is degraded but the standby B is unhealthy, so the policy refuses. Nothing is executed. An escalation JSON is written. This is the safety story."
+};
+
+async function runScenario(n){
+  document.querySelectorAll('button.scenario').forEach(b => b.disabled = true);
+  setCaption(CAPTIONS[n]);
+  try{
+    if(n === 1){
+      setStep('1/4 resetting to baseline (A active, B standby)');
+      await resetAll(false); await setActive('backend-a',1); await setActive('backend-b',0);
+      await sleep(5000);
+      setStep('2/4 degrading the active edge A');
+      await sim('backend-a','degrade');
+      setStep('3/4 agent detecting (~11s) → Gemini diagnosis → policy');
+      await sleep(16000);
+      setStep('4/4 done — check the Reasoning trace, edge cards and audit log');
+    } else if(n === 2){
+      setStep('1/3 resetting to baseline (B active, A standby)');
+      await resetAll(false); await setActive('backend-a',0); await setActive('backend-b',1);
+      await sleep(5000);
+      setStep('2/3 loading the active edge B (utilization climbs past 90%)');
+      await sim('backend-b','load');
+      setStep('3/3 agent detecting (~14s) → scales B to 2 workers');
+      await sleep(22000);
+      setStep('done — check B workers=2 and its lower utilization/latency');
+    } else if(n === 3){
+      setStep('1/4 resetting to baseline (A active)');
+      await resetAll(false); await setActive('backend-a',1); await setActive('backend-b',0);
+      await sleep(4000);
+      setStep('2/4 degrading the STANDBY edge B (so no failover target)');
+      await sim('backend-b','degrade');
+      await sleep(2000);
+      setStep('3/4 degrading the ACTIVE edge A');
+      await sim('backend-a','degrade');
+      setStep('4/4 agent detects A, policy refuses (standby unhealthy), escalation written, no action');
+      await sleep(18000);
+      setStep('done — nothing was executed; see the escalation under audit/escalations/');
+    }
+  } finally {
+    document.querySelectorAll('button.scenario').forEach(b => b.disabled = false);
+    refresh();
+  }
+}
+
+async function refreshTrace(){
+  try{
+    const r = await (await fetch('/api/incident/latest')).json();
+    const inc = r.incident;
+    if(!inc){ $('trace').textContent = '(no incident yet)'; return; }
+    const L = [];
+    L.push(`incident ${inc.incident_id}`);
+    L.push(`edge: ${inc.edge}   kind: ${inc.kind}   reason: ${inc.reason}`);
+    L.push(`detected: ${inc.detected_at}`);
+    L.push(`resolved: ${inc.resolved_at || '—'}   duration: ${inc.duration_seconds != null ? inc.duration_seconds + 's' : '—'}`);
+    if(inc.signals) L.push('signals at detection: ' + Object.entries(inc.signals).map(([k,v]) => `${k}=${v}`).join('  '));
+    const d = inc.diagnosis;
+    if(d && d.root_cause){
+      L.push(`LLM: root_cause=${d.root_cause}  confidence=${d.confidence}  engine=${d.engine}`);
+      L.push(`  "${d.summary}"`);
+      (d.evidence||[]).forEach(e => L.push(`  - ${e}`));
+    } else if(d && d.error){ L.push(`LLM: FAILED — ${d.error}`); }
+    if(inc.policy) L.push(`policy: allow=${inc.policy.allow}  playbook=${inc.policy.playbook||'—'}  reason="${inc.policy.reason}"`);
+    if(inc.action) L.push(`action: ${inc.action.playbook}  ok=${inc.action.ok}  verified=${inc.action.verified}  detail="${inc.action.detail}"`);
+    if(inc.escalation) L.push(`ESCALATION: ${inc.escalation.reason}`);
+    $('trace').textContent = L.join('\n');
+  } catch(e){ $('trace').textContent = 'trace unavailable'; }
+}
 
 async function refresh(){
   try{
@@ -47,7 +183,8 @@ async function refresh(){
     const snap = s.snapshot && s.snapshot.edges || {};
     for (const e of ['backend-a','backend-b']){
       const m = snap[e] || {};
-      $(e).innerHTML = `<b>${e}</b><br>healthy: ${m.healthy}
+      $(IDS[e]).className = 'card ' + edgeClass(m);
+      $(IDS[e]).innerHTML = `<b>${e}</b><br>healthy: ${m.healthy}
         ${pill(m.active)}<br>bitrate: ${(m.bitrate||0).toFixed(2)}
         Mbps<br>latency: ${(m.latency||0).toFixed(0)} ms
         <br>util: ${(m.util||0).toFixed(2)} workers: ${m.workers||0}`;
@@ -58,6 +195,7 @@ async function refresh(){
     $('events').textContent = ev.events.map(e =>
       `[${e.ts}] ${e.event_type} ${e.edge||''} ${e.reason||e.playbook||''}`).join('\n');
   }catch(e){ $('agent-status').textContent = 'stale / unreachable'; }
+  refreshTrace();
 }
 setInterval(refresh, 3000); refresh();
 </script></body></html>

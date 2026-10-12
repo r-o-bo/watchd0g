@@ -31,6 +31,12 @@ Agentic technical producer for live OTT streaming — **prototype**.
 - Only two playbooks, both simulated.
 - Every decision is appended to `audit/agent_audit.jsonl`.
 - Escalations are written to `audit/escalations/`.
+- A diagnosis below 0.6 confidence is escalated, never acted upon.
+
+## Screenshots
+
+- `docs/screenshots/console-failover.png` — the console during a simulated failover (edge cards, LLM diagnosis, policy/action, reasoning trace).
+- `docs/screenshots/grafana-edges.png` — the provisioned Grafana edge dashboard.
 
 ## Known limitations
 

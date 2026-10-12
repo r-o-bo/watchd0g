@@ -4,15 +4,34 @@ Status: **complete and verified end-to-end.** Both simulated playbooks
 (failover and scale-up) have run against the live Gemini API and passed. You do
 not need to do anything further unless you change `.env` or want to re-verify.
 
+## Live demo in one command
+
+```bash
+bash run_demo.sh
+```
+
+Runs three scenarios automatically — failover, scale-up, and the safety path —
+printing the diagnosis, policy and action for each, then resets to baseline. The
+safety act degrades both edges so the policy refuses to fail over with
+`standby edge unhealthy` and writes an escalation (no `.env` change needed).
+
+No Gemini key is required. `REASONER_MODE=auto` (set in `.env`) uses Gemini when
+reachable and falls back to a deterministic mock reasoner otherwise, so the demo
+never stalls on quota or network. Each diagnosis carries an `engine` field
+(`gemini`, `mock`, or `mock-fallback`). To force a mode, edit `.env` and recreate:
+`REASONER_MODE=mock` (fully offline) or `REASONER_MODE=gemini` (real API only).
+
+---
+
 ## Re-verify in one block
 
 ```bash
 docker compose up -d                 # stack up (idempotent)
 sleep 10
-.venv/bin/python -m pytest tests/ -v # expect: 33 passed, 0 skipped
+.venv/bin/python -m pytest tests/ -v # expect: 37 passed, 0 skipped
 ```
 
-`33 passed` = 28 unit + 5 integration (all-up, agent API/console, degrade
+`37 passed` = 32 unit + 5 integration (all-up, agent API/console, degrade
 propagation, failover e2e, scale-up e2e). Nothing should skip.
 
 ## CRITICAL: `.env` changes need a recreate, not a restart
@@ -56,6 +75,20 @@ A plain `restart` is fine to clear in-memory state (cooldowns, streaks,
 - Each sustained incident triggers **one** LLM call (the detector emits a
   detection once per incident, not every poll), so normal demo usage stays well
   inside the quota.
+
+## Low-confidence / safety demo switch
+
+`FORCE_LOW_CONFIDENCE=true` in `.env` (then
+`docker compose up -d --force-recreate agent`) forces every diagnosis to
+confidence **0.35** before it reaches the policy. The policy refuses any action
+below the **0.6** threshold (`CONFIDENCE_MIN_THRESHOLD`, default 0.6), so the
+agent diagnoses correctly but escalates instead of acting — the safety story.
+
+- The override is recorded in the audit log as a `confidence_forced` event with
+  the original value.
+- It applies in every reasoner mode (`gemini`, `mock`, `mock-fallback`), so the
+  offline demo exercises the same branch.
+- Default is `false`; it does not affect normal behavior.
 
 ## Demo sequence (copy-pasteable)
 

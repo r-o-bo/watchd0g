@@ -24,6 +24,7 @@ class Diagnosis(BaseModel):
     summary: str = Field(min_length=1)
     evidence: List[str] = Field(default_factory=list)
     confidence: float = Field(ge=0.0, le=1.0)
+    engine: str = "gemini"  # gemini | mock | mock-fallback
 
 class PolicyDecision(BaseModel):
     allow: bool

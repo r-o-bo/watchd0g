@@ -2,7 +2,7 @@ import asyncio, os
 from datetime import datetime, timezone
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse
-from . import config, observer, detector, audit, policy, playbooks
+from . import config, observer, detector, audit, policy, playbooks, incident
 from .reasoner import Reasoner, ReasonerError
 
 app = FastAPI(title="watchd0g agent")
@@ -21,9 +21,11 @@ STATE = {
 }
 
 async def handle_detection(det, snap):
-    audit.write("detection", edge=det.edge, kind=det.kind, reason=det.reason)
+    signals = snap.edges[det.edge].model_dump()
+    audit.write("detection", edge=det.edge, kind=det.kind, reason=det.reason,
+                signals=signals)
     try:
-        diag = STATE["reasoner"].diagnose(snap)
+        diag = await asyncio.to_thread(STATE["reasoner"].diagnose, snap)
         STATE["last_diagnosis"] = diag.model_dump()
         audit.write("diagnosis", **diag.model_dump())
     except ReasonerError as e:
@@ -33,16 +35,18 @@ async def handle_detection(det, snap):
         return
     standby = "backend-b" if det.edge == "backend-a" else "backend-a"
     standby_healthy = snap.edges[standby].healthy == 1
-    decision = policy.evaluate(det.kind, det.edge, standby_healthy, STATE["policy_state"])
+    decision = policy.evaluate(det.kind, det.edge, standby_healthy,
+                               STATE["policy_state"],
+                               diagnosis_confidence=diag.confidence)
     STATE["last_policy"] = decision.model_dump()
     audit.write("policy", **decision.model_dump())
     if not decision.allow:
         _escalate(det, snap, reason=decision.reason)
         return
     if decision.playbook == "failover":
-        result = playbooks.execute_failover(det.edge, snap)
+        result = await asyncio.to_thread(playbooks.execute_failover, det.edge, snap)
     elif decision.playbook == "scale_up":
-        result = playbooks.execute_scale_up(det.edge, target_workers=2)
+        result = await asyncio.to_thread(playbooks.execute_scale_up, det.edge, 2)
     else:
         return
     STATE["last_action"] = result.model_dump()
@@ -75,7 +79,7 @@ async def loop():
         try:
             if not STATE["busy"]:
                 STATE["busy"] = True
-                snap = observer.poll()
+                snap = await asyncio.to_thread(observer.poll)
                 STATE["last_snapshot"] = snap.model_dump(mode="json")
                 STATE["last_update"] = datetime.now(timezone.utc).isoformat()
                 det = detector.update(snap, STATE["detector_state"])
@@ -90,6 +94,8 @@ async def loop():
 
 @app.on_event("startup")
 async def start():
+    print("watchd0g agent started - simulated prototype, no real traffic",
+          flush=True)
     asyncio.create_task(loop())
 
 @app.get("/healthz")
@@ -111,6 +117,10 @@ def status():
 @app.get("/api/events")
 def events(limit: int = 50):
     return {"events": audit.recent(limit)}
+
+@app.get("/api/incident/latest")
+def incident_latest():
+    return {"incident": incident.latest(audit.recent(300))}
 
 @app.get("/")
 def index():

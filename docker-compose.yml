@@ -63,6 +63,7 @@ services:
       BACKEND_A_URL: http://backend-a:8001
       BACKEND_B_URL: http://backend-b:8002
       AUDIT_DIR: /app/audit
+      FORCE_LOW_CONFIDENCE: ${FORCE_LOW_CONFIDENCE:-false}
     volumes:
       - ./audit:/app/audit
       - ./console:/app/console:ro

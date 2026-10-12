@@ -11,7 +11,13 @@ class PolicyState:
     cooldowns: Dict[Tuple[str,str], float] = field(default_factory=dict)
 
 def evaluate(kind: str, edge: str, standby_healthy: bool,
-             state: PolicyState) -> PolicyDecision:
+             state: PolicyState,
+             diagnosis_confidence: Optional[float] = None) -> PolicyDecision:
+    if (diagnosis_confidence is not None
+            and diagnosis_confidence < config.CONFIDENCE_MIN_THRESHOLD):
+        return PolicyDecision(
+            allow=False,
+            reason=f"confidence below {config.CONFIDENCE_MIN_THRESHOLD} threshold")
     if not config.AUTO_REMEDIATE_ENABLED:
         return PolicyDecision(allow=False, reason="AUTO_REMEDIATE_ENABLED is false")
     if kind == "failover":
